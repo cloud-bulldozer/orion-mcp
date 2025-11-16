@@ -110,6 +110,8 @@ async def openshift_report_on(
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
     metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
     config: Annotated[str, Field(description="Config to analyze")] = "small-scale-udn-l3.yaml",
+    display: Annotated[str, Field(description="Optional field to display in output (e.g., 'ocpVirtVersion')")] = "",
+    output_format: Annotated[str, Field(description="Output format: 'image' for plot, 'json' for data, 'both' for both")] = "image",
 ) -> types.ImageContent | types.TextContent:
     """
     Captures a performance analysis against the specified OpenShift version using Orion.
@@ -134,6 +136,7 @@ async def openshift_report_on(
         version_list = list(versions)
 
     series: dict[str, list[float]] = {}
+    full_data: dict[str, dict] = {}  # Store full summarized data for JSON output
 
     for ver in version_list:
         result = await run_orion(
@@ -141,6 +144,7 @@ async def openshift_report_on(
             config=ORION_CONFIGS_PATH + config,
             data_source=get_data_source(),
             version=ver,
+            display=display if display.strip() else None,
         )
 
         sum_result = await summarize_result(result, isolate=metric)
@@ -159,15 +163,45 @@ async def openshift_report_on(
             return types.TextContent(type="text", text=f"All values are None for version {ver}")
 
         series[ver] = values
+        full_data[ver] = sum_result  # Store full data for JSON output
         print(f"series: {series}")
 
-    # Generate multi-line plot
-    try:
-        img_b64 = generate_multi_line_plot(series, metric, title_prefix=f"{config}: ")
-    except ValueError as e:
-        return types.TextContent(type="text", text=str(e))
+    # Handle different output formats
+    if output_format.lower() == "json":
+        # Return JSON data
+        json_output = {
+            "config": config,
+            "metric": metric,
+            "lookback": lookback,
+            "display": display if display.strip() else None,
+            "data": full_data
+        }
+        return types.TextContent(type="text", text=json.dumps(json_output, indent=2))
 
-    return types.ImageContent(type="image", data=img_b64.decode("utf-8"), mimeType="image/jpeg")
+    elif output_format.lower() == "both":
+        # Return both JSON and image info
+        json_output = {
+            "config": config,
+            "metric": metric,
+            "lookback": lookback,
+            "display": display if display.strip() else None,
+            "data": full_data,
+            "plot_info": "Image data follows JSON data"
+        }
+        try:
+            img_b64 = generate_multi_line_plot(series, metric, title_prefix=f"{config}: ")
+            combined_output = json.dumps(json_output, indent=2) + "\n\n[IMAGE_DATA_BASE64]\n" + img_b64.decode("utf-8")
+            return types.TextContent(type="text", text=combined_output)
+        except ValueError as e:
+            return types.TextContent(type="text", text=f"Error generating plot: {str(e)}\n\nJSON data:\n{json.dumps(json_output, indent=2)}")
+
+    else:
+        # Default: return image
+        try:
+            img_b64 = generate_multi_line_plot(series, metric, title_prefix=f"{config}: ")
+            return types.ImageContent(type="image", data=img_b64.decode("utf-8"), mimeType="image/jpeg")
+        except ValueError as e:
+            return types.TextContent(type="text", text=str(e))
 
 async def get_pr_details(organization: str, repository: str, pull_request: str, version: str = "4.20", lookback: str = "15") -> list[dict]:
     """

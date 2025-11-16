@@ -101,6 +101,7 @@ async def run_orion(
     data_source: str,
     version: str,
     input_vars: Optional[dict] = None,
+    display: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
     Execute Orion to analyze performance data for regressions.
@@ -110,6 +111,7 @@ async def run_orion(
         config: Path to the Orion configuration file to use for analysis.
         data_source: Location of the data (OpenSearch URL) to analyze.
         version: Version to analyze.
+        display: Optional field to display in the output (e.g., "ocpVirtVersion").
 
     Returns:
         The result of the Orion command execution, including stdout and stderr.
@@ -142,6 +144,10 @@ async def run_orion(
     if input_vars is not None:
         command.append("--input-vars")
         command.append(f"{json.dumps(input_vars)}")
+
+    if display is not None and display.strip():
+        command.append("--display")
+        command.append(display.strip())
 
     es_metadata_index = resolve_env_var(
         "es_metadata_index",
@@ -176,15 +182,21 @@ async def summarize_result(result: subprocess.CompletedProcess, isolate: Optiona
 
     Args:
         result: The json output from the Orion command.
+        isolate: Optional metric name to isolate for backwards compatibility.
 
     Returns:
-        A dictionary containing the summary of the Orion analysis.
+        A dictionary containing the summary of the Orion analysis with full run data preserved.
     """
     summary = {}
     try:
         data = json.loads(result.stdout)
         if len(data) == 0:
             return {}
+
+        # Store all runs with full data
+        summary["runs"] = data
+
+        # For backwards compatibility, also provide metric-focused summary
         for run in data:
             for metric_name, metric_data in run["metrics"].items():
                 summary["timestamp"] = run["timestamp"]
