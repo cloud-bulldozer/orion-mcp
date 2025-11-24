@@ -96,10 +96,10 @@ def orion_configs(configs: list[str]) -> list[str]:
     return [os.path.basename(cfg) for cfg in configs]
 
 async def run_orion(
-    lookback: str,
     config: str,
-    data_source: str,
     version: str,
+    lookback: str,
+    *,
     input_vars: Optional[dict] = None,
     display: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
@@ -116,6 +116,7 @@ async def run_orion(
     Returns:
         The result of the Orion command execution, including stdout and stderr.
     """
+    data_source = get_data_source()
     if data_source == "":
         raise ValueError("Data source is not set")
     command = []
@@ -248,10 +249,9 @@ async def orion_metrics(config_list: list) -> dict | str:
     for config in config_list:
         metrics[config] = []
         result = await run_orion(
-            lookback="15", 
             config=config,
-            data_source=get_data_source(),
-            version="4.19"
+            version="4.19",
+            lookback="15"
         )
         try:
             sum_result = await summarize_result(result)
