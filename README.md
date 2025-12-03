@@ -152,6 +152,9 @@ podman build -t quay.io/YOUR_ORG/orion-mcp:latest .
 A production-ready `openshift-deployment.yml` is provided:
 
 ```bash
+# Create mcp project if required
+oc new-project orion-mcp
+
 # Update ES_SERVER env if required then apply
 oc apply -f openshift-deployment.yml
 
@@ -191,4 +194,3 @@ Pull requests are very welcome! Please ensure you have read and adhere to the [C
 ## License
 
 Orion-MCP is distributed under the **Apache 2.0** License. See the [LICENSE](LICENSE) file for full text.
-
