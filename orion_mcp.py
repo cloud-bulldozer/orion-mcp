@@ -8,6 +8,7 @@ the cloud-bulldozer/orion library.
 import asyncio
 import json
 import os
+from datetime import datetime
 from typing import Annotated
 from pydantic import Field
 
@@ -23,7 +24,10 @@ from utils.utils import (
     orion_configs,
     generate_correlation_plot,
     generate_multi_line_plot,
-    list_orion_configs
+    list_orion_configs,
+    parse_nightly_version,
+    parse_timestamp,
+    filter_data_by_timestamp,
 )
 
 RELEASE_DATES = {
@@ -31,6 +35,8 @@ RELEASE_DATES = {
     "4.18": "2025-02-28",
     "4.19": "2025-06-17",
     "4.20": "2025-10-23",
+    "4.21": "2026-02-25",
+    "4.22": "2026-06-17",
 }
 
 mcp = FastMCP(name="orion-mcp",
@@ -514,6 +520,117 @@ async def metrics_correlation(
     corr_b64 = generate_correlation_plot(values1, values2, metric1, metric2, title_prefix=f"{config}: ")
 
     return types.ImageContent(type="image", data=corr_b64.decode("utf-8"), mimeType="image/jpeg")
+
+
+@mcp.tool()
+async def has_nightly_regressed(
+    nightly_version: Annotated[str, Field(description="Full nightly version string (e.g., '4.22.0-0.nightly-2026-01-05-203335')")],
+    previous_nightly: Annotated[str, Field(description="Optional previous nightly to compare against (e.g., '4.22.0-0.nightly-2026-01-01-123456')")] = "",
+    lookback: Annotated[str, Field(description="Number of days to lookback")] = "30",
+    configs: Annotated[str, Field(description="Comma-separated list of config files (optional, defaults to TRT configs)")] = "",
+) -> str:
+    """
+    Detect regressions for a specific OpenShift nightly version.
+
+    Parses the nightly version to extract major version and date, queries Orion,
+    filters data to the nightly date, and reports any changepoints found.
+
+    If previous_nightly is specified, only looks for regressions between the two nightlies.
+
+    Args:
+        nightly_version: Full nightly version string (e.g., '4.22.0-0.nightly-2026-01-05-203335').
+        previous_nightly: Optional previous nightly to compare against. If specified, only data
+                          between previous_nightly and nightly_version dates is analyzed.
+        lookback: Days to look back for data. Defaults to 30.
+        configs: Comma-separated list of config files. Defaults to TRT configs.
+
+    Returns:
+        String with regression details or "No regressions found".
+    """
+    # Parse the nightly version
+    try:
+        nightly_info = parse_nightly_version(nightly_version)
+    except ValueError as e:
+        return f"Error parsing nightly version: {e}"
+
+    if not nightly_info.is_nightly:
+        return f"Error: '{nightly_version}' is not a nightly version."
+
+    # Parse previous_nightly if specified
+    prev_nightly_info = None
+    if previous_nightly.strip():
+        try:
+            prev_nightly_info = parse_nightly_version(previous_nightly)
+        except ValueError as e:
+            return f"Error parsing previous_nightly: {e}"
+        if not prev_nightly_info.is_nightly:
+            return f"Error: '{previous_nightly}' is not a nightly version."
+        if prev_nightly_info.nightly_date >= nightly_info.nightly_date:
+            return "Error: previous_nightly must be earlier than nightly_version."
+
+    # Use default TRT configs if none specified
+    config_list = ([c.strip() for c in configs.split(",") if c.strip()] if configs.strip() else [
+        "trt-external-payload-cluster-density.yaml",
+        "trt-external-payload-node-density.yaml",
+        "trt-external-payload-node-density-cni.yaml",
+        "trt-external-payload-crd-scale.yaml",
+    ])
+
+    all_regressions: list[str] = []
+
+    for config in config_list:
+        full_config_path = os.path.join(ORION_CONFIGS_PATH, config)
+        result = await run_orion(config=full_config_path, version=nightly_info.major_version, lookback=lookback)
+
+        try:
+            data = json.loads(result.stdout)
+            if not isinstance(data, list):
+                continue
+            # Filter to entries on or before nightly date
+            data = filter_data_by_timestamp(data, nightly_info.nightly_date)
+            # If previous_nightly specified, also filter out entries before that date
+            if prev_nightly_info:
+                data = [e for e in data if e.get("timestamp") and _timestamp_after(e["timestamp"], prev_nightly_info.nightly_date)]
+        except (json.JSONDecodeError, TypeError):
+            continue
+
+        # Find changepoints and format output
+        for idx, entry in enumerate(data):
+            if not entry.get("is_changepoint"):
+                continue
+
+            # Build metric changes
+            metrics = []
+            for name, info in entry.get("metrics", {}).items():
+                pct = info.get("percentage_change", 0)
+                if pct != 0:
+                    metrics.append(f"{name} {'increased' if pct > 0 else 'decreased'} by {abs(pct):.2f}%")
+
+            prev = data[idx - 1] if idx > 0 else {}
+            prs_added = [p for p in (entry.get("prs") or []) if p not in (prev.get("prs") or [])]
+
+            lines = [
+                f"⚠️ Regression in {nightly_info.full_version}",
+                f"Config: {config}",
+                f"UUID: {entry.get('uuid')}",
+                f"Version: {entry.get('ocpVersion')} (prev: {prev.get('ocpVersion', 'N/A')})",
+            ]
+            if prev_nightly_info:
+                lines.insert(1, f"Comparing against: {prev_nightly_info.full_version}")
+            if prs_added:
+                lines.append(f"PRs: {', '.join(prs_added)}")
+            if metrics:
+                lines.append(f"Metrics: {'; '.join(metrics)}")
+
+            all_regressions.append("\n".join(lines))
+
+    return "\n\n".join(all_regressions) if all_regressions else "No regressions found"
+
+
+def _timestamp_after(timestamp_val, cutoff_datetime: datetime) -> bool:
+    """Check if a timestamp is after (not on or before) the cutoff datetime."""
+    entry_dt = parse_timestamp(timestamp_val)
+    return entry_dt is not None and entry_dt > cutoff_datetime
 
 
 def main():
