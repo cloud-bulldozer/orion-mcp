@@ -10,8 +10,11 @@ import base64
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 import matplotlib.pyplot as plt
@@ -394,4 +397,120 @@ def generate_multi_line_plot(
     plt.close()
     buf.seek(0)
     return base64.b64encode(buf.read())
+
+
+# Nightly version parsing utilities
+
+@dataclass
+class NightlyVersionInfo:
+    """Information parsed from a nightly or GA version string."""
+    full_version: str           # "4.18.0-0.nightly-2025-01-15-203335" or "4.18"
+    major_version: str          # "4.18"
+    nightly_date: Optional[datetime]  # datetime(2025, 1, 15, 20, 33, 35) for nightlies, None for GA
+    is_nightly: bool            # True for nightlies, False for GA
+
+
+def parse_nightly_version(version_string: str) -> NightlyVersionInfo:
+    """
+    Parse a nightly or GA version string into structured information.
+
+    Nightly format: X.Y.Z-0.nightly-YYYY-MM-DD-HHMMSS (e.g., 4.18.0-0.nightly-2025-01-15-203335)
+    GA format: X.Y or X.Y.Z (e.g., 4.17 or 4.17.0)
+
+    Args:
+        version_string: The version string to parse.
+
+    Returns:
+        NightlyVersionInfo with parsed details.
+
+    Raises:
+        ValueError: If the version string format is invalid.
+    """
+    version_string = version_string.strip()
+
+    # Try to match nightly format: X.Y.Z-0.nightly-YYYY-MM-DD-HHMMSS
+    nightly_pattern = r'^(\d+)\.(\d+)\.(\d+)-0\.nightly-(\d{4})-(\d{2})-(\d{2})-(\d{6})$'
+    nightly_match = re.match(nightly_pattern, version_string)
+
+    if nightly_match:
+        major = nightly_match.group(1)
+        minor = nightly_match.group(2)
+        year = int(nightly_match.group(4))
+        month = int(nightly_match.group(5))
+        day = int(nightly_match.group(6))
+        time_str = nightly_match.group(7)  # HHMMSS format
+        hour = int(time_str[0:2])
+        minute = int(time_str[2:4])
+        second = int(time_str[4:6])
+
+        return NightlyVersionInfo(
+            full_version=version_string,
+            major_version=f"{major}.{minor}",
+            nightly_date=datetime(year, month, day, hour, minute, second),
+            is_nightly=True,
+        )
+
+    # Try to match GA format: X.Y or X.Y.Z
+    ga_pattern = r'^(\d+)\.(\d+)(?:\.(\d+))?$'
+    ga_match = re.match(ga_pattern, version_string)
+
+    if ga_match:
+        major = ga_match.group(1)
+        minor = ga_match.group(2)
+
+        return NightlyVersionInfo(
+            full_version=version_string,
+            major_version=f"{major}.{minor}",
+            nightly_date=None,
+            is_nightly=False,
+        )
+
+    raise ValueError(
+        f"Invalid version format: '{version_string}'. "
+        "Expected nightly format (e.g., '4.18.0-0.nightly-2025-01-15-123456') "
+        "or GA format (e.g., '4.17' or '4.17.0')."
+    )
+
+
+def parse_timestamp(timestamp_val) -> Optional[datetime]:
+    """
+    Parse a timestamp value into a datetime object.
+
+    Args:
+        timestamp_val: Unix timestamp (int/float), ISO string, or numeric string.
+
+    Returns:
+        Parsed datetime, or None if unparseable.
+    """
+    try:
+        if isinstance(timestamp_val, (int, float)):
+            return datetime.fromtimestamp(timestamp_val)
+        if isinstance(timestamp_val, str):
+            try:
+                return datetime.fromtimestamp(float(timestamp_val))
+            except ValueError:
+                ts_clean = timestamp_val.replace("Z", "").split("+")[0].split(".")[0]
+                return datetime.fromisoformat(ts_clean)
+    except (ValueError, TypeError, OSError):
+        pass
+    return None
+
+
+def filter_data_by_timestamp(data: list[dict], cutoff_datetime: datetime) -> list[dict]:
+    """
+    Filter Orion results to only include entries on or before the cutoff datetime.
+
+    Args:
+        data: List of Orion run dictionaries, each containing a 'timestamp' field.
+        cutoff_datetime: The cutoff datetime; entries after this are excluded.
+
+    Returns:
+        Filtered list containing only entries with timestamps on or before cutoff_datetime.
+    """
+    filtered = []
+    for entry in data:
+        entry_dt = parse_timestamp(entry.get("timestamp"))
+        if entry_dt and entry_dt <= cutoff_datetime:
+            filtered.append(entry)
+    return filtered
     
