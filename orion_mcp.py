@@ -75,6 +75,24 @@ def get_data_source_resource() -> str:
     return get_data_source()
 
 @mcp.tool()
+async def get_release_date(
+    version : Annotated[str, Field(description="OCP Version to get Release date")] = "4.20") -> str:
+    """
+    Get the release date for a given OpenShift version.
+
+    Args:
+        version: OpenShift version to get the release date for.
+        Defaults to 4.20.
+
+    Returns:
+        The release date for the given OpenShift version.
+        If the version is not a valid OpenShift version, returns "Invalid version: {version}".
+    """
+    if version in RELEASE_DATES :
+        return RELEASE_DATES[version]
+    return f"Invalid version: {version}"
+
+@mcp.tool()
 def get_orion_configs() -> list[str]:
     """
     Return the list of Orion config filenames (not full paths).
@@ -108,6 +126,8 @@ async def get_orion_metrics(
 async def openshift_report_on(
     versions: Annotated[str, Field(description="Comma-separated list of OpenShift versions e.g. '4.19,4.20'")] = "4.19",
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
+    since: Annotated[str, Field(description="Date to begin lookback")] = None,
+    *,
     metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
     config: Annotated[str, Field(description="Config to analyze")] = "small-scale-udn-l3.yaml",
     options: Annotated[str, Field(description="Options in format 'output_format' or 'output_format:display_field'. Examples: 'image', 'json', 'both', 'json:ocpVirtVersion'")] = "image",
@@ -121,6 +141,7 @@ async def openshift_report_on(
     Args:
         versions: Comma-separated list of OpenShift versions to analyze.
         lookback: The number of days to look back for performance data. Defaults to 15 days.
+        since: The date to begin looking back for performance data. Defaults to None.
         metric: The metric to analyze. Defaults to podReadyLatency_P99.
         config: The config to analyze. Defaults to small-scale-udn-l3.yaml.
         options: Output format and optional display field. Format: 'output_format' or
@@ -152,6 +173,7 @@ async def openshift_report_on(
             config=ORION_CONFIGS_PATH + config,
             version=ver,
             lookback=lookback,
+            since=since,
             display=display if display.strip() else None,
         )
 
@@ -475,6 +497,8 @@ async def metrics_correlation(
     metric1: Annotated[str, Field(description="First metric to analyze")] = "podReadyLatency_P99",
     metric2: Annotated[str, Field(description="Second metric to analyze")] = "ovnCPU_avg",
     config: Annotated[str, Field(description="Config to analyze")] = "trt-external-payload-cluster-density.yaml",
+    *,
+    since: Annotated[str, Field(description="Date to begin looking back for performance data")] = None,
     version: Annotated[str, Field(description="Version of OpenShift to look into")] = "4.19",
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
 ) -> types.ImageContent | types.TextContent:
@@ -492,6 +516,7 @@ async def metrics_correlation(
         config=ORION_CONFIGS_PATH + config,
         version=version,
         lookback=lookback,
+        since=since,
     )
 
     summary = await summarize_result(result)
