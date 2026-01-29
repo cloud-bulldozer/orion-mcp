@@ -108,6 +108,7 @@ async def run_orion(
     version: str,
     lookback: str,
     *,
+    since: str = None,
     input_vars: Optional[dict] = None,
     display: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
@@ -150,6 +151,11 @@ async def run_orion(
             "--config", config,
             "-o", "json"
         ]
+
+    if since is not None:
+        command.append("--since")
+        command.append(since)
+
     if input_vars is not None:
         command.append("--input-vars")
         command.append(f"{json.dumps(input_vars)}")
@@ -223,7 +229,6 @@ async def summarize_result(result: subprocess.CompletedProcess, isolate: Optiona
                     summary[metric_name]["value"].append(metric_data["value"])
     except Exception as e:
         return f"Error : {e}"
-    print(summary)
     return summary
 
 
@@ -258,7 +263,7 @@ async def orion_metrics(config_list: list) -> dict | str:
         metrics[config] = []
         result = await run_orion(
             config=config,
-            version="4.19",
+            version="4.20",
             lookback="15"
         )
         try:
