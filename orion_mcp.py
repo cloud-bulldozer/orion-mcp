@@ -135,6 +135,37 @@ async def get_orion_metrics(
 
 
 @mcp.tool()
+async def get_orion_metrics_with_meta(
+    config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
+    config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    version: Annotated[str, Field(description="OpenShift version used to render the config template")] = "4.19",
+) -> dict:
+    """Return metrics and metadata for a specific Orion *config*.
+
+    Args:
+        config: **Filename** of the Orion configuration to query (not the full path).
+        config_name: Preferred config filename (alias of config).
+        version: OpenShift version used to render the config template.
+
+    Returns:
+        A dictionary with "metrics" (list) and "meta" (per-metric metadata).
+    """
+    effective_config = config_name or config or "small-scale-udn-l3.yaml"
+    try:
+        metrics, meta_map = _load_config_metrics_with_meta(
+            os.path.join(ORION_CONFIGS_PATH, effective_config),
+            version=version,
+        )
+        return {"metrics": metrics, "meta": meta_map}
+    except Exception as e:
+        # Fall back to Orion metrics without metadata if parsing fails
+        result = await orion_metrics([ORION_CONFIGS_PATH + effective_config])
+        if isinstance(result, str):
+            return {"error": f"{e} | {result}"}
+        return {"metrics": result, "meta": {}, "warning": str(e)}
+
+
+@mcp.tool()
 async def openshift_report_on(
     versions: Annotated[str, Field(description="Comma-separated list of OpenShift versions e.g. '4.19,4.20'")] = "4.19",
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
@@ -253,6 +284,51 @@ async def openshift_report_on(
             return types.ImageContent(type="image", data=img_b64.decode("utf-8"), mimeType="image/jpeg")
         except ValueError as e:
             return types.TextContent(type="text", text=str(e))
+
+
+@mcp.tool()
+async def get_orion_performance_data(
+    config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
+    config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
+    version: Annotated[str, Field(description="OpenShift version to analyze")] = "4.19",
+    lookback: Annotated[str, Field(description="Number of days to lookback")] = "14",
+    since: Annotated[str | None, Field(description="Date to begin looking back for performance data")] = None,
+) -> dict:
+    """Return performance data values for a specific config/metric/version.
+
+    Returns:
+        Dict with config, metric, version, lookback, values, count.
+    """
+    config_value = config_name or config or "small-scale-udn-l3.yaml"
+    try:
+        result = await run_orion(
+            config=ORION_CONFIGS_PATH + config_value,
+            version=version,
+            lookback=lookback,
+            since=since,
+        )
+        sum_result = await summarize_result(result, isolate=metric)
+
+        if not isinstance(sum_result, dict) or metric not in sum_result:
+            return {"error": f"No data found for metric {metric}"}
+
+        metric_data = sum_result[metric]
+        values = metric_data.get("value", [])
+        if not isinstance(values, list):
+            return {"error": f"Unexpected data format for metric {metric}"}
+
+        values = [v for v in values if v is not None]
+        return {
+            "config": config_value,
+            "metric": metric,
+            "version": version,
+            "lookback": lookback,
+            "values": values,
+            "count": len(values),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 async def get_pr_details(organization: str, repository: str, pull_request: str, version: str = "4.20", lookback: str = "15") -> list[dict]:
     """
