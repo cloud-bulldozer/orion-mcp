@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Clone Orion repository
-RUN git clone --depth 1 --branch v0.1.5 http://github.com/cloud-bulldozer/orion /app/orion-repo
+RUN git clone --depth 1 --branch v0.1.5 https://github.com/cloud-bulldozer/orion /app/orion-repo
 
 # Create and populate Orion virtual environment
 RUN python -m venv /app/orion-venv
@@ -49,7 +49,8 @@ RUN ln -sf /app/orion-venv/bin/orion /usr/local/bin/orion
 COPY . /app/orion-mcp/
 
 # Create wrapper script
-RUN echo '#!/bin/bash\n/app/orion-mcp-venv/bin/python /app/orion-mcp/orion_mcp.py "$@"' > /usr/local/bin/orion-mcp && \
+RUN printf '%s\n' '#!/bin/sh' '/app/orion-mcp-venv/bin/python /app/orion-mcp/orion_mcp.py "$@"' \
+    > /usr/local/bin/orion-mcp && \
     chmod +x /usr/local/bin/orion-mcp
 
 WORKDIR /app/orion-mcp
