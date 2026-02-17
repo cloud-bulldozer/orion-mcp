@@ -292,6 +292,7 @@ async def openshift_report_on(
 async def get_orion_performance_data(
     config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
     config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    *,
     metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
     version: Annotated[str, Field(description="OpenShift version to analyze")] = "4.19",
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "14",
@@ -753,61 +754,6 @@ def main():
     # (No operation)
 
 
-# =============================================================================
-# REST API Endpoints (Simple HTTP JSON API)
-# These endpoints provide direct HTTP access to Orion functionality,
-# bypassing the MCP protocol for simpler integration.
-# Uses FastMCP's @custom_route decorator.
-# =============================================================================
-
-from starlette.requests import Request
-from starlette.responses import JSONResponse
-
-
-@mcp.custom_route("/api/configs", methods=["GET"])
-async def api_get_configs(request: Request) -> JSONResponse:
-    """
-    REST endpoint: GET /api/configs
-    Returns list of available Orion configuration files.
-    """
-    configs = orion_configs(ORION_CONFIGS)
-    return JSONResponse({"configs": configs})
-
-
-@mcp.custom_route("/api/metrics", methods=["GET"])
-async def api_get_metrics(request: Request) -> JSONResponse:
-    """
-    REST endpoint: GET /api/metrics?config=<config_name>
-    Returns list of metrics for a specific config.
-    """
-    config = request.query_params.get("config_name") or request.query_params.get(
-        "config", "small-scale-udn-l3.yaml"
-    )
-    include_meta = request.query_params.get("include_meta", "0").lower() in ("1", "true", "yes")
-    version = request.query_params.get("version", "4.19")
-
-    if include_meta:
-        try:
-            metrics, meta_map = _load_config_metrics_with_meta(
-                os.path.join(ORION_CONFIGS_PATH, config),
-                version=version,
-            )
-            return JSONResponse({"metrics": metrics, "meta": meta_map})
-        except Exception as e:
-            # Fall back to original behavior if parsing fails
-            result = await orion_metrics([ORION_CONFIGS_PATH + config])
-            if isinstance(result, str):
-                return JSONResponse({"error": f"{e} | {result}"}, status_code=500)
-            return JSONResponse({"metrics": result, "meta": {}})
-
-    result = await orion_metrics([ORION_CONFIGS_PATH + config])
-
-    if isinstance(result, str):
-        return JSONResponse({"error": result}, status_code=500)
-
-    return JSONResponse({"metrics": result})
-
-
 def _metric_key(metric: dict) -> str:
     name = metric.get("name", "unknown")
     if "agg" in metric and isinstance(metric["agg"], dict):
@@ -860,50 +806,6 @@ def _load_config_metrics_with_meta(config_path: str, version: str) -> tuple[list
             }
 
     return metrics_list, meta_map
-
-
-@mcp.custom_route("/api/performance", methods=["GET"])
-async def api_get_performance_data(request: Request) -> JSONResponse:
-    """
-    REST endpoint: GET /api/performance?config=<config>&metric=<metric>&version=<version>&lookback=<days>
-    Returns performance data for analysis.
-    """
-    config = request.query_params.get("config_name") or request.query_params.get(
-        "config", "small-scale-udn-l3.yaml"
-    )
-    metric = request.query_params.get("metric", "podReadyLatency_P99")
-    version = request.query_params.get("version", "4.19")
-    lookback = request.query_params.get("lookback", "14")
-    
-    try:
-        result = await run_orion(
-            config=ORION_CONFIGS_PATH + config,
-            version=version,
-            lookback=lookback,
-        )
-        
-        sum_result = await summarize_result(result, isolate=metric)
-        
-        if not isinstance(sum_result, dict) or metric not in sum_result:
-            return JSONResponse({"error": f"No data found for metric {metric}"}, status_code=404)
-        
-        metric_data = sum_result[metric]
-        values = metric_data.get("value", [])
-        
-        # Filter out None values
-        values = [v for v in values if v is not None]
-        
-        return JSONResponse({
-            "config": config,
-            "metric": metric,
-            "version": version,
-            "lookback": lookback,
-            "values": values,
-            "count": len(values)
-        })
-        
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
 
 
 if __name__ == "__main__":
