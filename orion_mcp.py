@@ -111,12 +111,14 @@ def get_orion_configs() -> list[str]:
 async def get_orion_metrics(
     config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
     config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    version: Annotated[str, Field(description="OpenShift version used to query metrics")] = "4.20",
 ) -> dict:
     """Return the list of metrics available for a specific Orion *config*.
 
     Args:
         config: **Filename** of the Orion configuration to query (not the full path).
         config_name: Preferred config filename (alias of config).
+        version: OpenShift version used to query metrics.
 
     Returns:
         A dictionary where the key is the *config* (full path) and the value is a
@@ -126,7 +128,7 @@ async def get_orion_metrics(
     effective_config = config_name or config or "small-scale-udn-l3.yaml"
 
     # Query only the requested config
-    result = await orion_metrics([ORION_CONFIGS_PATH + effective_config])
+    result = await orion_metrics([ORION_CONFIGS_PATH + effective_config], version=version)
 
     if isinstance(result, str):
         return {"error": f"Failed to fetch Orion metrics: {result}"}

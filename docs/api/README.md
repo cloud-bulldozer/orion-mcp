@@ -17,7 +17,7 @@ Orion MCP exposes its functionality through the Model Context Protocol (MCP), pr
 | Tool | Purpose | Input | Output |
 |------|---------|-------|--------|
 | `get_orion_configs` | List available test configurations | None | Array of config filenames |
-| `get_orion_metrics` | Get metrics for a configuration | `config` | Metrics dictionary |
+| `get_orion_metrics` | Get metrics for a configuration | `config`, `version` (optional) | Metrics dictionary |
 | `openshift_report_on` | Generate performance trends | `versions`, `metric`, `config` | Image (PNG/JPEG) |
 | `openshift_report_on_pr` | Analyze PR performance | `organization`, `repository`, `pull_request` | JSON analysis |
 | `has_openshift_regressed` | Detect regressions | `version`, `lookback` | Text summary |

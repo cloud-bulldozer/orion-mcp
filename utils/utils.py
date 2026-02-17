@@ -248,7 +248,7 @@ def get_data_source() -> str:
     return value
 
 
-async def orion_metrics(config_list: list) -> dict | str:
+async def orion_metrics(config_list: list, version: str = "4.20") -> dict | str:
     """
     Provide the metrics for Orion analysis.
     Args:
@@ -263,7 +263,7 @@ async def orion_metrics(config_list: list) -> dict | str:
         metrics[config] = []
         result = await run_orion(
             config=config,
-            version="4.20",
+            version=version,
             lookback="15"
         )
         try:
