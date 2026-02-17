@@ -1,11 +1,22 @@
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   labels:
-    app.kubernetes.io/instance: orion-mcp 
+    app: orion-mcp 
   name: orion-mcp 
   namespace: orion-mcp
+  annotations:
+    image.openshift.io/triggers: |
+      [
+        {
+          "from": {
+            "kind": "ImageStreamTag",
+            "name": "orion-mcp:latest",
+            "namespace": "orion-mcp"
+          },
+          "fieldPath": "spec.template.spec.containers[?(@.name==\"orion-mcp\")].image"
+        }
+      ]
 spec:
   progressDeadlineSeconds: 600
   replicas: 1
@@ -20,24 +31,26 @@ spec:
     type: RollingUpdate
   template:
     metadata:
-      annotations:
-        alpha.image.policy.openshift.io/resolve-names: '*'
-      creationTimestamp: null
       labels:
         app.kubernetes.io/instance: orion-mcp
         app.kubernetes.io/name: orion-mcp 
     spec:
       containers:
-      - image: quay.io/jtaleric/orion-mcp
+      - image: orion-mcp:latest
         imagePullPolicy: Always
-        name: mcp 
-        env:
-        - name: ES_SERVER 
-          value: "<insert opensearch url here>"
+        name: orion-mcp 
+        envFrom:
+        - secretRef:
+          name: orion-mcp-env
         ports:
         - containerPort: 3030
           protocol: TCP
-        resources: {}
+        resources:
+            requests:
+              cpu: "1"
+              memory: "512Mi"
+            limits:
+              memory: "512Mi"
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: File
       dnsPolicy: ClusterFirst
@@ -45,23 +58,3 @@ spec:
       schedulerName: default-scheduler
       securityContext: {}
       terminationGracePeriodSeconds: 30
-
----
-apiVersion: v1
-kind: Service
-metadata:
-  labels:
-    app.kubernetes.io/instance: orion-mcp
-  name: orion-mcp
-  namespace: orion-mcp
-spec:
-  ports:
-  - name: http
-    port: 3030
-    protocol: TCP
-    targetPort: 3030
-  selector:
-    app.kubernetes.io/instance: orion-mcp
-    app.kubernetes.io/name: orion-mcp
-  type: ClusterIP
-

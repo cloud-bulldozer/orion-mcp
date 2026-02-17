@@ -149,20 +149,28 @@ podman build -t quay.io/YOUR_ORG/orion-mcp:latest .
 
 ### OpenShift
 
-A production-ready `openshift-deployment.yml` is provided:
+To deploy to an OpenShift cluster, specify the ES_SERVER in kustomize/base/.env, e.g.:
 
 ```bash
-# Create mcp project if required
-oc new-project orion-mcp
-
-# Update ES_SERVER env if required then apply
-oc apply -f openshift-deployment.yml
-
-# Verify
-oc get pods -l app.kubernetes.io/name=orion-mcp
+ES_SERVER=https://USER:PASSWORD@SERVER:443
 ```
 
-Expose the service using an **OpenShift Route** and point your MCP client to `http://<host>:3030`.
+To deploy the application:
+
+```bash
+# Expose your quay credentials to fetch the container image
+export QUAY_CRED='<base64 encoded pull secret>'
+
+# Build and apply the manifests
+kustomize build --load-restrictor=LoadRestrictionsNone ./kustomize/base | envsubst | oc apply -f -
+```
+
+To verify any changes to manifests, you can render them locally, e.g.:
+```bash
+kustomize build  ./kustomize/base | envsubst > manifests.yaml 
+```
+
+To access the service externally, expose it using an **OpenShift Route** and point your MCP client to `http://<host>:3030`.
 
 ---
 
