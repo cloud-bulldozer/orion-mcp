@@ -12,7 +12,7 @@ spec:
     - name: latest
       from:
         kind: DockerImage
-        name: quay.io/rh_perfscale/orion-mcp:latest
+        name: quay.io/cloud-bulldozer/orion-mcp:latest
       importPolicy:
         scheduled: true
       referencePolicy:
