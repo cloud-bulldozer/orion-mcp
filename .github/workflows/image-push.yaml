@@ -1,0 +1,33 @@
+name: Image Push
+on:
+  workflow_call:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+jobs:
+  image-push:
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.build.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Orion MCP Image
+        id: build
+        uses: redhat-actions/buildah-build@v2
+        with:
+          image: orion-mcp
+          context: .
+          tags: latest ${{ github.sha }}
+          containerfiles: |
+            ./Containerfile
+
+      - name: Push Orion MCP Image
+        uses: redhat-actions/push-to-registry@v2
+        with:
+          image: ${{ steps.build.outputs.image }}
+          tags: ${{ steps.build.outputs.tags }}
+          registry: quay.io/cloud-bulldozer
+          username: ${{ secrets.QUAY_USER }}
+          password: ${{ secrets.QUAY_TOKEN }}
