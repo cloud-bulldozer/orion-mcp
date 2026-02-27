@@ -109,15 +109,18 @@ def get_orion_configs() -> list[str]:
 
 @mcp.tool()
 async def get_orion_metrics(
-    config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
-    config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"
+        ),
+    ] = None,
     version: Annotated[str, Field(description="OpenShift version used to query metrics")] = "4.20",
 ) -> dict:
     """Return the list of metrics available for a specific Orion *config*.
 
     Args:
-        config: **Filename** of the Orion configuration to query (not the full path).
-        config_name: Preferred config filename (alias of config).
+        config_name: **Filename** of the Orion configuration to query (not the full path).
         version: OpenShift version used to query metrics.
 
     Returns:
@@ -125,7 +128,8 @@ async def get_orion_metrics(
         list of metric names available for that configuration.
     """
 
-    effective_config = config_name or config or "small-scale-udn-l3.yaml"
+    default_config = "small-scale-udn-l3.yaml"
+    effective_config = config_name or default_config
 
     # Query only the requested config
     result = await orion_metrics([ORION_CONFIGS_PATH + effective_config], version=version)
@@ -138,21 +142,25 @@ async def get_orion_metrics(
 
 @mcp.tool()
 async def get_orion_metrics_with_meta(
-    config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
-    config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"
+        ),
+    ] = None,
     version: Annotated[str, Field(description="OpenShift version used to render the config template")] = "4.19",
 ) -> dict:
     """Return metrics and metadata for a specific Orion *config*.
 
     Args:
-        config: **Filename** of the Orion configuration to query (not the full path).
-        config_name: Preferred config filename (alias of config).
+        config_name: **Filename** of the Orion configuration to query (not the full path).
         version: OpenShift version used to render the config template.
 
     Returns:
         A dictionary with "metrics" (list) and "meta" (per-metric metadata).
     """
-    effective_config = config_name or config or "small-scale-udn-l3.yaml"
+    default_config = "small-scale-udn-l3.yaml"
+    effective_config = config_name or default_config
     try:
         metrics, meta_map = _load_config_metrics_with_meta(
             os.path.join(ORION_CONFIGS_PATH, effective_config),
@@ -174,8 +182,10 @@ async def openshift_report_on(
     since: Annotated[str, Field(description="Date to begin lookback")] = None,
     *,
     metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
-    config: Annotated[str, Field(description="Config to analyze")] = "small-scale-udn-l3.yaml",
-    config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    config_name: Annotated[
+        str | None,
+        Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"),
+    ] = None,
     options: Annotated[str, Field(description="Options in format 'output_format' or 'output_format:display_field'. Examples: 'image', 'json', 'both', 'json:ocpVirtVersion'")] = "image",
 ) -> types.ImageContent | types.TextContent:
     """
@@ -189,8 +199,7 @@ async def openshift_report_on(
         lookback: The number of days to look back for performance data. Defaults to 15 days.
         since: The date to begin looking back for performance data. Defaults to None.
         metric: The metric to analyze. Defaults to podReadyLatency_P99.
-        config: The config to analyze. Defaults to small-scale-udn-l3.yaml.
-        config_name: Preferred config filename (alias of config).
+        config_name: The config to analyze. Defaults to small-scale-udn-l3.yaml.
         options: Output format and optional display field. Format: 'output_format' or
                 'output_format:display_field'. Examples: 'image', 'json:ocpVirtVersion'.
 
@@ -214,7 +223,8 @@ async def openshift_report_on(
     series: dict[str, list[float]] = {}
     full_data: dict[str, dict] = {}  # Store full summarized data for JSON output
 
-    config_value = config_name or config or "small-scale-udn-l3.yaml"
+    default_config = "small-scale-udn-l3.yaml"
+    config_value = config_name or default_config
     errors = []
     for ver in version_list:
         result = await run_orion(
@@ -290,8 +300,12 @@ async def openshift_report_on(
 
 @mcp.tool()
 async def get_orion_performance_data(
-    config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
-    config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"
+        ),
+    ] = None,
     *,
     metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
     version: Annotated[str, Field(description="OpenShift version to analyze")] = "4.19",
@@ -303,7 +317,8 @@ async def get_orion_performance_data(
     Returns:
         Dict with config, metric, version, lookback, values, count.
     """
-    config_value = config_name or config or "small-scale-udn-l3.yaml"
+    default_config = "small-scale-udn-l3.yaml"
+    config_value = config_name or default_config
     try:
         result = await run_orion(
             config=ORION_CONFIGS_PATH + config_value,
@@ -590,9 +605,13 @@ async def has_networking_regressed(
 async def metrics_correlation(
     metric1: Annotated[str, Field(description="First metric to analyze")] = "podReadyLatency_P99",
     metric2: Annotated[str, Field(description="Second metric to analyze")] = "ovnCPU_avg",
-    config: Annotated[str, Field(description="Config to analyze")] = "trt-external-payload-cluster-density.yaml",
     *,
-    config_name: Annotated[str | None, Field(description="Preferred config filename (alias of config; use to avoid LangChain 'config' collisions)")] = None,
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'trt-external-payload-cluster-density.yaml')"
+        ),
+    ] = None,
     since: Annotated[str, Field(description="Date to begin looking back for performance data")] = None,
     version: Annotated[str, Field(description="Version of OpenShift to look into")] = "4.19",
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
@@ -606,7 +625,8 @@ async def metrics_correlation(
     falls back to returning a textual error message.
     """
 
-    config_value = config_name or config or "trt-external-payload-cluster-density.yaml"
+    default_config = "trt-external-payload-cluster-density.yaml"
+    config_value = config_name or default_config
 
     # Run Orion to gather data
     result = await run_orion(
