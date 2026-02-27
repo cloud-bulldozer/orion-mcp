@@ -295,7 +295,7 @@ async def get_orion_performance_data(
     *,
     metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
     version: Annotated[str, Field(description="OpenShift version to analyze")] = "4.19",
-    lookback: Annotated[str, Field(description="Number of days to lookback")] = "14",
+    lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
     since: Annotated[str | None, Field(description="Date to begin looking back for performance data")] = None,
 ) -> dict:
     """Return performance data values for a specific config/metric/version.
