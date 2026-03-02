@@ -17,11 +17,13 @@ Orion MCP exposes its functionality through the Model Context Protocol (MCP), pr
 | Tool | Purpose | Input | Output |
 |------|---------|-------|--------|
 | `get_orion_configs` | List available test configurations | None | Array of config filenames |
-| `get_orion_metrics` | Get metrics for a configuration | `config` | Metrics dictionary |
-| `openshift_report_on` | Generate performance trends | `versions`, `metric`, `config` | Image (PNG/JPEG) |
+| `get_orion_metrics` | Get metrics for a configuration | `config_name`, `version` (optional) | Metrics dictionary |
+| `get_orion_metrics_with_meta` | Get metrics and metadata for a configuration | `config_name`, `version` (optional) | Metrics + meta dictionary |
+| `get_orion_performance_data` | Get raw performance values for config/metric/version | `config_name`, `metric`, `version`, `lookback`, `since` (optional) | Values list + count |
+| `openshift_report_on` | Generate performance trends | `versions`, `metric`, `config_name` | Image (PNG/JPEG) |
 | `openshift_report_on_pr` | Analyze PR performance | `organization`, `repository`, `pull_request` | JSON analysis |
 | `has_openshift_regressed` | Detect regressions | `version`, `lookback` | Text summary |
-| `metrics_correlation` | Correlate two metrics | `metric1`, `metric2`, `config` | Scatter plot image |
+| `metrics_correlation` | Correlate two metrics | `metric1`, `metric2`, `config_name` | Scatter plot image |
 
 ## 📊 Resources
 

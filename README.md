@@ -68,11 +68,13 @@ python orion_mcp.py  # listens on 0.0.0.0:3030 by default
 |------|-------------|-------------------|
 | `get_data_source` | Returns the configured OpenSearch URL | _none_ |
 | `get_orion_configs` | Lists available Orion configuration files | _none_ |
-| `get_orion_metrics` | Lists metrics grouped by Orion config | _none_ |
-| `openshift_report_on` | Generates a trend line for one or more OCP versions | `versions="4.19"`, `lookback="15"`, `metric="podReadyLatency_P99"`, `config="small-scale-udn-l3.yaml"` |
+| `get_orion_metrics` | Lists metrics grouped by Orion config | `config_name="small-scale-udn-l3.yaml"`, `version="4.20"` |
+| `get_orion_metrics_with_meta` | Lists metrics plus metadata for Orion config | `config_name="small-scale-udn-l3.yaml"`, `version="4.19"` |
+| `get_orion_performance_data` | Returns raw performance values for config/metric/version | `config_name="small-scale-udn-l3.yaml"`, `metric="podReadyLatency_P99"`, `version="4.19"`, `lookback="15"` |
+| `openshift_report_on` | Generates a trend line for one or more OCP versions | `versions="4.19"`, `lookback="15"`, `metric="podReadyLatency_P99"`, `config_name="small-scale-udn-l3.yaml"` |
 | `openshift_report_on_pr` | **NEW** Analyzes performance impact of a specific Pull Request | `version="4.20"`, `lookback="15"`, `organization="openshift"`, `repository="ovn-kubernetes"`, `pull_request="2841"` |
 | `has_openshift_regressed` | Scans all configs for changepoints | `version="4.19"`, `lookback="15"` |
-| `metrics_correlation` | Correlates two metrics & returns a scatter plot | `metric1="podReadyLatency_P99"`, `metric2="ovnCPU_avg"`, `config="trt-external-payload-cluster-density.yaml"`, `version="4.19"`, `lookback="15"` |
+| `metrics_correlation` | Correlates two metrics & returns a scatter plot | `metric1="podReadyLatency_P99"`, `metric2="ovnCPU_avg"`, `config_name="trt-external-payload-cluster-density.yaml"`, `version="4.19"`, `lookback="15"` |
 
 ---
 

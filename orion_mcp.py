@@ -11,6 +11,8 @@ import os
 from datetime import datetime
 from typing import Annotated
 from pydantic import Field
+import jinja2
+import yaml
 
 from mcp import types
 from mcp.server.fastmcp import FastMCP
@@ -107,25 +109,70 @@ def get_orion_configs() -> list[str]:
 
 @mcp.tool()
 async def get_orion_metrics(
-    config: Annotated[str, Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')")] = "small-scale-udn-l3.yaml",
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"
+        ),
+    ] = None,
+    version: Annotated[str, Field(description="OpenShift version used to query metrics")] = "4.20",
 ) -> dict:
     """Return the list of metrics available for a specific Orion *config*.
 
     Args:
-        config: **Filename** of the Orion configuration to query (not the full path).
+        config_name: **Filename** of the Orion configuration to query (not the full path).
+        version: OpenShift version used to query metrics.
 
     Returns:
         A dictionary where the key is the *config* (full path) and the value is a
         list of metric names available for that configuration.
     """
 
+    default_config = "small-scale-udn-l3.yaml"
+    effective_config = config_name or default_config
+
     # Query only the requested config
-    result = await orion_metrics([ORION_CONFIGS_PATH + config])
+    result = await orion_metrics([ORION_CONFIGS_PATH + effective_config], version=version)
 
     if isinstance(result, str):
         return {"error": f"Failed to fetch Orion metrics: {result}"}
 
     return result
+
+
+@mcp.tool()
+async def get_orion_metrics_with_meta(
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"
+        ),
+    ] = None,
+    version: Annotated[str, Field(description="OpenShift version used to render the config template")] = "4.19",
+) -> dict:
+    """Return metrics and metadata for a specific Orion *config*.
+
+    Args:
+        config_name: **Filename** of the Orion configuration to query (not the full path).
+        version: OpenShift version used to render the config template.
+
+    Returns:
+        A dictionary with "metrics" (list) and "meta" (per-metric metadata).
+    """
+    default_config = "small-scale-udn-l3.yaml"
+    effective_config = config_name or default_config
+    try:
+        metrics, meta_map = _load_config_metrics_with_meta(
+            os.path.join(ORION_CONFIGS_PATH, effective_config),
+            version=version,
+        )
+        return {"metrics": metrics, "meta": meta_map}
+    except Exception as e:
+        # Fall back to Orion metrics without metadata if parsing fails
+        result = await orion_metrics([ORION_CONFIGS_PATH + effective_config])
+        if isinstance(result, str):
+            return {"error": f"{e} | {result}"}
+        return {"metrics": result, "meta": {}, "warning": str(e)}
 
 
 @mcp.tool()
@@ -135,7 +182,10 @@ async def openshift_report_on(
     since: Annotated[str, Field(description="Date to begin lookback")] = None,
     *,
     metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
-    config: Annotated[str, Field(description="Config to analyze")] = "small-scale-udn-l3.yaml",
+    config_name: Annotated[
+        str | None,
+        Field(description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"),
+    ] = None,
     options: Annotated[str, Field(description="Options in format 'output_format' or 'output_format:display_field'. Examples: 'image', 'json', 'both', 'json:ocpVirtVersion'")] = "image",
 ) -> types.ImageContent | types.TextContent:
     """
@@ -149,7 +199,7 @@ async def openshift_report_on(
         lookback: The number of days to look back for performance data. Defaults to 15 days.
         since: The date to begin looking back for performance data. Defaults to None.
         metric: The metric to analyze. Defaults to podReadyLatency_P99.
-        config: The config to analyze. Defaults to small-scale-udn-l3.yaml.
+        config_name: The config to analyze. Defaults to small-scale-udn-l3.yaml.
         options: Output format and optional display field. Format: 'output_format' or
                 'output_format:display_field'. Examples: 'image', 'json:ocpVirtVersion'.
 
@@ -173,10 +223,12 @@ async def openshift_report_on(
     series: dict[str, list[float]] = {}
     full_data: dict[str, dict] = {}  # Store full summarized data for JSON output
 
+    default_config = "small-scale-udn-l3.yaml"
+    config_value = config_name or default_config
     errors = []
     for ver in version_list:
         result = await run_orion(
-            config=ORION_CONFIGS_PATH + config,
+            config=ORION_CONFIGS_PATH + config_value,
             version=ver,
             lookback=lookback,
             since=since,
@@ -212,7 +264,7 @@ async def openshift_report_on(
     if output_format.lower() == "json":
         # Return JSON data
         json_output = {
-            "config": config,
+            "config": config_value,
             "metric": metric,
             "lookback": lookback,
             "display": display if display.strip() else None,
@@ -223,7 +275,7 @@ async def openshift_report_on(
     if output_format.lower() == "both":
         # Return both JSON and image info
         json_output = {
-            "config": config,
+            "config": config_value,
             "metric": metric,
             "lookback": lookback,
             "display": display if display.strip() else None,
@@ -231,7 +283,7 @@ async def openshift_report_on(
             "plot_info": "Image data follows JSON data"
         }
         try:
-            img_b64 = generate_multi_line_plot(series, metric, title_prefix=f"{config}: ")
+            img_b64 = generate_multi_line_plot(series, metric, title_prefix=f"{config_value}: ")
             combined_output = json.dumps(json_output, indent=2) + "\n\n[IMAGE_DATA_BASE64]\n" + img_b64.decode("utf-8")
             return types.TextContent(type="text", text=combined_output)
         except ValueError as e:
@@ -240,10 +292,61 @@ async def openshift_report_on(
     else:
         # Default: return image
         try:
-            img_b64 = generate_multi_line_plot(series, metric, title_prefix=f"{config}: ")
+            img_b64 = generate_multi_line_plot(series, metric, title_prefix=f"{config_value}: ")
             return types.ImageContent(type="image", data=img_b64.decode("utf-8"), mimeType="image/jpeg")
         except ValueError as e:
             return types.TextContent(type="text", text=str(e))
+
+
+@mcp.tool()
+async def get_orion_performance_data(
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'small-scale-udn-l3.yaml')"
+        ),
+    ] = None,
+    *,
+    metric: Annotated[str, Field(description="Metric to analyze")] = "podReadyLatency_P99",
+    version: Annotated[str, Field(description="OpenShift version to analyze")] = "4.19",
+    lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
+    since: Annotated[str | None, Field(description="Date to begin looking back for performance data")] = None,
+) -> dict:
+    """Return performance data values for a specific config/metric/version.
+
+    Returns:
+        Dict with config, metric, version, lookback, values, count.
+    """
+    default_config = "small-scale-udn-l3.yaml"
+    config_value = config_name or default_config
+    try:
+        result = await run_orion(
+            config=ORION_CONFIGS_PATH + config_value,
+            version=version,
+            lookback=lookback,
+            since=since,
+        )
+        sum_result = await summarize_result(result, isolate=metric)
+
+        if not isinstance(sum_result, dict) or metric not in sum_result:
+            return {"error": f"No data found for metric {metric}"}
+
+        metric_data = sum_result[metric]
+        values = metric_data.get("value", [])
+        if not isinstance(values, list):
+            return {"error": f"Unexpected data format for metric {metric}"}
+
+        values = [v for v in values if v is not None]
+        return {
+            "config": config_value,
+            "metric": metric,
+            "version": version,
+            "lookback": lookback,
+            "values": values,
+            "count": len(values),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 async def get_pr_details(organization: str, repository: str, pull_request: str, version: str = "4.20", lookback: str = "15") -> list[dict]:
     """
@@ -502,8 +605,13 @@ async def has_networking_regressed(
 async def metrics_correlation(
     metric1: Annotated[str, Field(description="First metric to analyze")] = "podReadyLatency_P99",
     metric2: Annotated[str, Field(description="Second metric to analyze")] = "ovnCPU_avg",
-    config: Annotated[str, Field(description="Config to analyze")] = "trt-external-payload-cluster-density.yaml",
     *,
+    config_name: Annotated[
+        str | None,
+        Field(
+            description="Orion configuration file name (e.g. 'trt-external-payload-cluster-density.yaml')"
+        ),
+    ] = None,
     since: Annotated[str, Field(description="Date to begin looking back for performance data")] = None,
     version: Annotated[str, Field(description="Version of OpenShift to look into")] = "4.19",
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
@@ -517,9 +625,12 @@ async def metrics_correlation(
     falls back to returning a textual error message.
     """
 
+    default_config = "trt-external-payload-cluster-density.yaml"
+    config_value = config_name or default_config
+
     # Run Orion to gather data
     result = await run_orion(
-        config=ORION_CONFIGS_PATH + config,
+        config=ORION_CONFIGS_PATH + config_value,
         version=version,
         lookback=lookback,
         since=since,
@@ -542,7 +653,7 @@ async def metrics_correlation(
         )
 
     # Compute correlation & generate plot
-    corr_b64 = generate_correlation_plot(values1, values2, metric1, metric2, title_prefix=f"{config}: ")
+    corr_b64 = generate_correlation_plot(values1, values2, metric1, metric2, title_prefix=f"{config_value}: ")
 
     return types.ImageContent(type="image", data=corr_b64.decode("utf-8"), mimeType="image/jpeg")
 
@@ -661,6 +772,60 @@ def _timestamp_after(timestamp_val, cutoff_datetime: datetime) -> bool:
 def main():
     """Main function to run the MCP server."""
     # (No operation)
+
+
+def _metric_key(metric: dict) -> str:
+    name = metric.get("name", "unknown")
+    if "agg" in metric and isinstance(metric["agg"], dict):
+        agg_type = metric["agg"].get("agg_type", "")
+        if agg_type:
+            return f"{name}_{agg_type}"
+    metric_of_interest = metric.get("metric_of_interest", "value")
+    return f"{name}_{metric_of_interest}"
+
+
+def _render_config_yaml(config_path: str, version: str) -> dict:
+    with open(config_path, "r", encoding="utf-8") as template_file:
+        template_content = template_file.read()
+
+    env_vars = {k.lower(): v for k, v in os.environ.items()}
+    env_vars.update(
+        {
+            "version": version,
+            "jobtype": "periodic",
+            "pull_number": 0,
+            "organization": "",
+            "repository": "",
+        }
+    )
+
+    try:
+        template = jinja2.Template(template_content, undefined=jinja2.StrictUndefined)
+        rendered = template.render(env_vars)
+    except jinja2.exceptions.UndefinedError:
+        template = jinja2.Template(template_content)
+        rendered = template.render(env_vars)
+
+    return yaml.safe_load(rendered)
+
+
+def _load_config_metrics_with_meta(config_path: str, version: str) -> tuple[list[str], dict]:
+    rendered_config = _render_config_yaml(config_path, version)
+    metrics_list: list[str] = []
+    meta_map: dict = {}
+
+    for test in rendered_config.get("tests", []):
+        for metric in test.get("metrics", []):
+            key = _metric_key(metric)
+            metrics_list.append(key)
+            meta_map[key] = {
+                "direction": int(metric.get("direction", 0)),
+                "threshold": float(metric.get("threshold", 0)),
+                "metric_of_interest": metric.get("metric_of_interest"),
+                "agg_type": metric.get("agg", {}).get("agg_type") if isinstance(metric.get("agg"), dict) else None,
+            }
+
+    return metrics_list, meta_map
 
 
 if __name__ == "__main__":
