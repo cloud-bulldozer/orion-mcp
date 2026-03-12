@@ -204,6 +204,9 @@ async def summarize_result(result: subprocess.CompletedProcess, isolate: Optiona
     """
     summary = {}
     try:
+        if result.returncode == 3:
+            return {}
+
         data = json.loads(result.stdout)
         if len(data) == 0:
             return {}
