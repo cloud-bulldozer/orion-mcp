@@ -204,6 +204,9 @@ async def summarize_result(result: subprocess.CompletedProcess, isolate: Optiona
     """
     summary = {}
     try:
+        if result.returncode == 3:
+            return {}
+
         data = json.loads(result.stdout)
         if len(data) == 0:
             return {}
@@ -260,7 +263,6 @@ async def orion_metrics(config_list: list, version: str = "4.20") -> dict | str:
     """
     metrics = {} 
     for config in config_list:
-        metrics[config] = []
         result = await run_orion(
             config=config,
             version=version,
@@ -270,7 +272,10 @@ async def orion_metrics(config_list: list, version: str = "4.20") -> dict | str:
             sum_result = await summarize_result(result)
             print(f"Sum result: {sum_result}")
             if isinstance(sum_result, dict):
-                metrics[config].append(list(sum_result.keys()))
+                # Exclude helper keys so callers do not mistake metadata fields like runs/timestamp for queryable metrics.
+                metrics[config] = [
+                    key for key in sum_result.keys() if key not in {"runs", "timestamp"}
+                ]
             else:
                 return f"Error processing result for {config}: {sum_result}"
         except (KeyError, ValueError, TypeError) as e:

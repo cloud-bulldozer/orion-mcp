@@ -169,7 +169,10 @@ async def get_orion_metrics_with_meta(
         return {"metrics": metrics, "meta": meta_map}
     except Exception as e:
         # Fall back to Orion metrics without metadata if parsing fails
-        result = await orion_metrics([ORION_CONFIGS_PATH + effective_config])
+        # Preserve the caller's version when we have to fall back to data-driven metric discovery.
+        result = await orion_metrics(
+            [ORION_CONFIGS_PATH + effective_config], version=version
+        )
         if isinstance(result, str):
             return {"error": f"{e} | {result}"}
         return {"metrics": result, "meta": {}, "warning": str(e)}
@@ -818,9 +821,23 @@ def _load_config_metrics_with_meta(config_path: str, version: str) -> tuple[list
         for metric in test.get("metrics", []):
             key = _metric_key(metric)
             metrics_list.append(key)
+            direction_raw = metric.get("direction")
+            threshold_raw = metric.get("threshold")
+            try:
+                direction_val = (
+                    int(direction_raw) if direction_raw is not None else None
+                )
+            except (TypeError, ValueError):
+                direction_val = None
+            try:
+                threshold_val = (
+                    float(threshold_raw) if threshold_raw is not None else None
+                )
+            except (TypeError, ValueError):
+                threshold_val = None
             meta_map[key] = {
-                "direction": int(metric.get("direction", 0)),
-                "threshold": float(metric.get("threshold", 0)),
+                "direction": direction_val,
+                "threshold": threshold_val,
                 "metric_of_interest": metric.get("metric_of_interest"),
                 "agg_type": metric.get("agg", {}).get("agg_type") if isinstance(metric.get("agg"), dict) else None,
             }
