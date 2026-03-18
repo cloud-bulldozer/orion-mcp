@@ -13,15 +13,21 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+import httpx
 import matplotlib.pyplot as plt
 import numpy as np
 
 # Define ORION_CONFIGS_PATH locally to avoid circular import
 ORION_CONFIGS_PATH = "/orion/examples/"
+
+# Fetch latest ACKs from GitHub main so acked UUIDs (e.g. added in Orion repo) are reflected in the container image.
+# See: https://github.com/cloud-bulldozer/orion/pull/305
+REMOTE_ACK_URL = "https://raw.githubusercontent.com/cloud-bulldozer/orion/main/ack/all_ack.yaml"
 
 def resolve_env_var(primary_name: str, secondary_name: str, default_value: str) -> str:
     """
@@ -40,6 +46,36 @@ def resolve_env_var(primary_name: str, secondary_name: str, default_value: str) 
         return secondary_value
 
     return default_value
+
+
+async def get_latest_ack_path() -> Optional[str]:
+    """
+    Fetch the latest consolidated ACK file from Orion's GitHub main branch.
+    We pull from main so new acks apply even before a new Orion release is cut.
+    If the fetch fails, returns None and Orion uses its default/bundled acks.
+    """
+    max_attempts = 3
+    delay_seconds = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(REMOTE_ACK_URL)
+                resp.raise_for_status()
+            data = resp.content
+            fd, path = tempfile.mkstemp(suffix=".yaml", prefix="orion_ack_")
+            try:
+                os.write(fd, data)
+            finally:
+                os.close(fd)
+            print(f"Fetched latest ACK file from GitHub ({len(data)} bytes), using {path}")
+            return path
+        except (httpx.HTTPError, OSError) as exc:
+            print(f"Attempt {attempt}/{max_attempts} to fetch remote ACK file failed: {exc}")
+            if attempt < max_attempts:
+                await asyncio.sleep(delay_seconds)
+    print("Using Orion default ACK behavior (remote fetch failed)")
+    return None
+
 
 async def run_command_async(command: list[str] | str, env: Optional[dict] = None, shell: bool = False, cwd: Optional[str] = None) -> subprocess.CompletedProcess:
     """
@@ -128,20 +164,29 @@ async def run_orion(
     data_source = get_data_source()
     if data_source == "":
         raise ValueError("Data source is not set")
+
+    ack_path = await get_latest_ack_path()
     command = []
     if not shutil.which("orion"):
         print("Using orion from podman")
-        command = [
-            "podman",
-            "run",
-            "--env-host",
+        command = ["podman", "run", "--env-host"]
+        if ack_path:
+            command.extend(["-v", f"{ack_path}:/ack/all_ack.yaml:ro"])
+        command.extend([
             "orion",
             "orion",
             "--lookback", f"{lookback}d",
             "--hunter-analyze",
             "--config", config,
             "-o", "json"
-        ]
+        ])
+        if ack_path:
+            orion_args_start = command.index("orion") + 1
+            command = (
+                command[: orion_args_start + 1]
+                + ["--ack", "/ack/all_ack.yaml"]
+                + command[orion_args_start + 1 :]
+            )
     else:
         print("Using orion from path")
         command = [
@@ -151,6 +196,8 @@ async def run_orion(
             "--config", config,
             "-o", "json"
         ]
+        if ack_path:
+            command = command[:1] + ["--ack", ack_path] + command[1:]
 
     if since is not None:
         command.append("--since")

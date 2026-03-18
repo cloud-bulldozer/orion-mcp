@@ -7,10 +7,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     gcc \
     build-essential \
+    curl \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone Orion repository
-RUN git clone --depth 1 --branch v0.1.5 https://github.com/cloud-bulldozer/orion /app/orion-repo
+# Clone Orion repository: use ORION_RELEASE_TAG if set, else fetch latest release from GitHub API.
+ARG ORION_RELEASE_TAG=
+ENV ORION_REPO_URL="https://github.com/cloud-bulldozer/orion"
+RUN if [ -n "${ORION_RELEASE_TAG}" ]; then \
+      LATEST_TAG="${ORION_RELEASE_TAG}"; \
+      echo "Using build-arg ORION_RELEASE_TAG=${LATEST_TAG}"; \
+    else \
+      LATEST_TAG=$(curl -s "https://api.github.com/repos/cloud-bulldozer/orion/releases/latest" | jq -r '.tag_name') || LATEST_TAG="v0.1.5"; \
+      echo "Using latest release: ${LATEST_TAG}"; \
+    fi && \
+    echo "${LATEST_TAG}" > /tmp/orion-version.txt && \
+    git clone --depth 1 --branch "${LATEST_TAG}" "${ORION_REPO_URL}" /app/orion-repo
 
 # Create and populate Orion virtual environment
 RUN python -m venv /app/orion-venv
@@ -41,6 +53,7 @@ ENV PATH="/app/orion-mcp-venv/bin:$PATH"
 COPY --from=builder /app/orion-venv /app/orion-venv
 COPY --from=builder /app/orion-mcp-venv /app/orion-mcp-venv
 COPY --from=builder /orion/examples /orion/examples
+COPY --from=builder /tmp/orion-version.txt /app/orion-version.txt
 
 # Create symlink for orion command
 RUN ln -sf /app/orion-venv/bin/orion /usr/local/bin/orion
