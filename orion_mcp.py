@@ -89,7 +89,7 @@ def _extract_and_set_es_server(ctx) -> None:
                 es_config = get_es_server_from_headers(headers_dict)
                 if es_config:
                     current_es_config.set(es_config)
-    except Exception as e:
+    except Exception:
         # Silently fall back to environment variables
         pass
 
@@ -491,6 +491,7 @@ async def get_pr_details(organization: str, repository: str, pull_request: str, 
 @mcp.tool()
 async def openshift_report_on_pr(
     version: Annotated[str, Field(description="OpenShift version to analyze")] = "4.20",
+    *,
     lookback: Annotated[str, Field(description="Number of days to lookback")] = "15",
     organization: Annotated[str, Field(description="Organization to look into")] = "openshift",
     repository: Annotated[str, Field(description="Repository to look into")] = "ovn-kubernetes",

@@ -78,10 +78,10 @@ def get_es_server_from_headers(headers: dict) -> Optional[dict]:
         return es_config
     except json.JSONDecodeError as e:
         logger.error("Failed to parse ES config JSON: %s", str(e))
-        raise ValueError(f"Invalid ES config JSON format: {str(e)}")
+        raise ValueError(f"Invalid ES config JSON format: {str(e)}") from e
     except Exception as e:
         logger.error("Failed to decrypt ES config from headers: %s", str(e))
-        raise ValueError(f"Invalid encrypted ES config: {str(e)}")
+        raise ValueError(f"Invalid encrypted ES config: {str(e)}") from e
 
 
 def decrypt_es_server(encrypted_blob: str) -> str:
@@ -117,7 +117,7 @@ def decrypt_es_server(encrypted_blob: str) -> str:
     try:
         encryption_key = base64.b64decode(encryption_key_b64)
     except Exception as e:
-        raise ValueError(f"Invalid ES_ENCRYPTION_KEY format (must be base64): {e}")
+        raise ValueError(f"Invalid ES_ENCRYPTION_KEY format (must be base64): {e}") from e
 
     # Validate key length (should be 32 bytes for AES-256)
     if len(encryption_key) != 32:
@@ -129,7 +129,7 @@ def decrypt_es_server(encrypted_blob: str) -> str:
     try:
         encrypted_data = base64.b64decode(encrypted_blob)
     except Exception as e:
-        raise ValueError(f"Invalid encrypted blob format (must be base64): {e}")
+        raise ValueError(f"Invalid encrypted blob format (must be base64): {e}") from e
 
     # Validate minimum length (12 bytes for nonce)
     if len(encrypted_data) < 12:
@@ -151,7 +151,7 @@ def decrypt_es_server(encrypted_blob: str) -> str:
         raise ValueError(
             f"Decryption failed (wrong key or corrupted data): {e}. "
             "Ensure ES_ENCRYPTION_KEY matches the one in BugZooka."
-        )
+        ) from e
 
     # Decode to string (JSON config)
     es_config_json = plaintext.decode('utf-8')
