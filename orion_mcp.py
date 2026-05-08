@@ -41,6 +41,8 @@ RELEASE_DATES = {
     "4.20": "2025-10-23",
     "4.21": "2026-02-25",
     "4.22": "2026-06-17",
+    "4.23": "TBD",           # Pre-GA
+    "5.0": "TBD",            # Pre-GA
 }
 
 mcp = FastMCP(name="orion-mcp",
