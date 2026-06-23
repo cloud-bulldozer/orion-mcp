@@ -18,11 +18,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Optional
 
+import httpx
 import matplotlib.pyplot as plt
 import numpy as np
 
 # Define ORION_CONFIGS_PATH locally to avoid circular import
 ORION_CONFIGS_PATH = "/orion/examples/"
+
+RELEASE_CONTROLLER_API = "https://amd64.ocp.releases.ci.openshift.org/api/v1"
 
 # Context variable for ES config from encrypted request headers
 # Provides async-safe isolation between concurrent requests
@@ -592,4 +595,20 @@ def filter_data_by_timestamp(data: list[dict], cutoff_datetime: datetime) -> lis
         if entry_dt and entry_dt <= cutoff_datetime:
             filtered.append(entry)
     return filtered
-    
+
+
+async def check_payload_phase(nightly_version: str, major_version: str) -> Optional[str]:
+    """Query release controller API for payload acceptance phase.
+
+    Returns "Accepted", "Rejected", "Pending", or None on error.
+    """
+    stream = f"{major_version}.0-0.nightly"
+    url = f"{RELEASE_CONTROLLER_API}/releasestream/{stream}/release/{nightly_version}"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.json().get("phase")
+    except (httpx.HTTPError, KeyError, ValueError, AttributeError):
+        return None
+
