@@ -702,6 +702,8 @@ async def has_networking_regressed(
     Checks only the following Orion configurations:
       - small-scale-udn-l3.yaml
       - trt-external-payload-node-density-cni.yaml
+      - small-scale-cudn-density-single-ns-250.yaml
+      - small-scale-cudn-density-single-ns-500.yaml
 
     Args:
         version: Openshift version to look into.
@@ -714,6 +716,8 @@ async def has_networking_regressed(
     configs = [
         "small-scale-udn-l3.yaml",
         "trt-external-payload-node-density-cni.yaml",
+        "small-scale-cudn-density-single-ns-250.yaml",
+        "small-scale-cudn-density-single-ns-500.yaml",
     ]
     return await _run_regression_checks(configs, version=version, lookback=lookback)
 
@@ -900,6 +904,333 @@ def _timestamp_after(timestamp_val, cutoff_datetime: datetime) -> bool:
     """Check if a timestamp is after (not on or before) the cutoff datetime."""
     entry_dt = parse_timestamp(timestamp_val)
     return entry_dt is not None and entry_dt > cutoff_datetime
+
+
+CUDN_CONFIGS = {
+    "cudn-density-single-ns-250": {"config": "small-scale-cudn-density-single-ns-250.yaml", "iterations": 250, "type": "density",      "min_version": "4.22"},
+    "cudn-pod-churn-250":         {"config": "small-scale-cudn-pod-churn-250.yaml",          "iterations": 250, "type": "churn",        "min_version": "5.0"},
+    "cudn-churn-250":             {"config": "small-scale-cudn-churn-250.yaml",              "iterations": 250, "type": "churn",        "min_version": "5.0"},
+    "cudn-density-single-ns-500": {"config": "small-scale-cudn-density-single-ns-500.yaml", "iterations": 500, "type": "density",      "min_version": "4.22"},
+    "cudn-incremental-1000":      {"config": "small-scale-cudn-incremental-1000.yaml",      "iterations": 1000, "type": "incremental", "min_version": "5.0", "step_size": 200},
+}
+
+
+def _version_ge(version: str, min_version: str) -> bool:
+    """Check if version >= min_version using simple tuple comparison."""
+    def _parse(v):
+        parts = v.split(".")
+        return tuple(int(p) for p in parts)
+    try:
+        return _parse(version) >= _parse(min_version)
+    except (ValueError, IndexError):
+        return True
+
+CUDN_CHURN_BASELINE = "cudn-density-single-ns-250"
+
+CUDN_KEY_METRICS = [
+    "podReadyLatency_P99",
+    "podReadyLatency_max",
+    "ovsCPU-irate-all_avg",
+    "ovnkCPU-overall_avg",
+    "ovnCPU-ovncontroller_avg",
+    "ovnCPU-northd_avg",
+    "ovnCPU-ovnk-controller_avg",
+    "ovsMemory-Workers_max",
+    "ovnkMem-overall_avg",
+    "ovnMem-ovncontroller_avg",
+    "ovnMem-northd_avg",
+    "ovnMem-nbdb_avg",
+    "ovnMem-sbdb_avg",
+    "ovnMem-ovnk-controller_avg",
+]
+
+CUDN_NOTABLE_CHANGE_PCT = 5.0
+
+
+def _compute_metric_avg(values: list) -> float | None:
+    """Compute average from a list of metric values, ignoring Nones."""
+    clean = [v for v in values if v is not None]
+    if not clean:
+        return None
+    return round(sum(clean) / len(clean), 2)
+
+
+async def _collect_cudn_test_data(
+    test_name: str,
+    test_info: dict,
+    version: str,
+    lookback: str,
+) -> dict:
+    """Run Orion for a single CUDN config and collect all data for one version."""
+    config_file = test_info["config"]
+    full_path = os.path.join(ORION_CONFIGS_PATH, config_file)
+
+    result = await run_orion(
+        config=full_path,
+        version=version,
+        lookback=lookback,
+        jira_ack=True,
+        jira_status_filter="Done",
+    )
+
+    test_data = {
+        "test": test_name,
+        "iterations": test_info["iterations"],
+        "type": test_info["type"],
+        "status": "no_data",
+        "runs_found": 0,
+        "regressions": [],
+        "metric_avgs": {},
+    }
+
+    if result.returncode == 3:
+        return test_data
+
+    try:
+        raw_data = json.loads(result.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return test_data
+
+    if not isinstance(raw_data, list) or len(raw_data) == 0:
+        return test_data
+
+    test_data["runs_found"] = len(raw_data)
+
+    last_run = raw_data[-1]
+    test_data["latest_timestamp"] = last_run.get("timestamp")
+
+    for metric_name in last_run.get("metrics", {}):
+        if metric_name not in CUDN_KEY_METRICS:
+            continue
+        values = [
+            run["metrics"].get(metric_name, {}).get("value")
+            for run in raw_data
+            if metric_name in run.get("metrics", {})
+        ]
+        test_data["metric_avgs"][metric_name] = _compute_metric_avg(values)
+
+    if "podReadyLatency_max" in test_data["metric_avgs"] and "podReadyLatency_P99" not in test_data["metric_avgs"]:
+        test_data["latency_note"] = "uses podReadyLatency_max (no P99 available)"
+
+    if result.returncode not in (0, 3):
+        test_data["status"] = "regression"
+        details = _extract_regression_details(result.stdout)
+        for det in details:
+            test_data["regressions"].append({
+                "ocp_version": det.get("ocpVersion"),
+                "previous_version": det.get("previousOcpVersion"),
+                "affected_metrics": det.get("metrics", []),
+                "prs_added": det.get("prs_added", []),
+            })
+    else:
+        test_data["status"] = "healthy"
+
+    return test_data
+
+
+def _short_name(metric: str) -> str:
+    """Shorten a metric key for display."""
+    return metric.replace("_avg", "").replace("_max", "(max)").replace("_P99", "(P99)")
+
+
+def _fmt_val(val: float) -> str:
+    """Format a metric value compactly."""
+    if val > 1e6:
+        return f"{val:.2e}"
+    return f"{val:.1f}"
+
+
+def _notable_deltas(from_avgs: dict, to_avgs: dict) -> list[str]:
+    """Return list of 'metric: +X.Y%' strings for notable changes between two avg dicts."""
+    parts = []
+    for m in CUDN_KEY_METRICS:
+        f_val = from_avgs.get(m)
+        t_val = to_avgs.get(m)
+        if f_val and t_val and f_val != 0:
+            pct = ((t_val - f_val) / abs(f_val)) * 100
+            if abs(pct) >= CUDN_NOTABLE_CHANGE_PCT:
+                parts.append(f"{_short_name(m)}: {pct:+.1f}%")
+    return parts
+
+
+def _format_summary(
+    version_list: list[str],
+    primary_version: str,
+    lookback: str,
+    overall_status: str,
+    summary_text: str,
+    all_version_data: dict[str, dict[str, dict]],
+) -> str:
+    """Build the complete pre-formatted summary string."""
+    lines = [
+        f"CUDN Density Performance Summary",
+        f"Versions: {', '.join(version_list)} | Lookback: {lookback}d | Status: {overall_status.upper()}",
+        f"Summary: {summary_text}",
+        "",
+    ]
+
+    for version in version_list:
+        lines.append(f"=== {version} ===")
+        version_data = all_version_data[version]
+
+        for test_name in CUDN_CONFIGS:
+            t = version_data.get(test_name)
+            if not t:
+                continue
+            status_icon = {"healthy": "OK", "regression": "REGRESSION", "no_data": "NO DATA"}[t["status"]]
+            ts = t.get("latest_timestamp")
+            ts_str = f", latest: {ts}" if ts else ""
+            cfg = CUDN_CONFIGS.get(test_name, {})
+            step = cfg.get("step_size")
+            scale_desc = f"{t['iterations']} CUDNs in steps of {step}" if step else f"{t['iterations']} CUDNs"
+            lines.append(f"  {t['test']} ({scale_desc}, {t['type']}) — {status_icon} ({t['runs_found']} runs{ts_str})")
+
+            if t.get("latency_note"):
+                lines.append(f"    Note: {t['latency_note']}")
+
+            metric_parts = [
+                f"{_short_name(m)}={_fmt_val(val)}"
+                for m in CUDN_KEY_METRICS
+                if (val := t.get("metric_avgs", {}).get(m)) is not None
+            ]
+            if metric_parts:
+                lines.append(f"    Metrics: {', '.join(metric_parts)}")
+
+            for reg in t.get("regressions", []):
+                affected = "; ".join(reg.get("affected_metrics", []))
+                lines.append(f"    ⚠ Regression at {reg.get('ocp_version', '?')} (prev: {reg.get('previous_version', '?')})")
+                if affected:
+                    lines.append(f"      Affected: {affected}")
+                prs = reg.get("prs_added", [])
+                if prs:
+                    lines.append(f"      PRs: {', '.join(prs[:5])}")
+        lines.append("")
+
+    # Churn analysis for primary version
+    primary_data = all_version_data[primary_version]
+    baseline = primary_data.get(CUDN_CHURN_BASELINE)
+    if baseline and baseline.get("metric_avgs"):
+        churn_lines = []
+        for test_name, test_info in CUDN_CONFIGS.items():
+            if test_info["type"] != "churn":
+                continue
+            churn_data = primary_data.get(test_name)
+            if not churn_data or not churn_data.get("metric_avgs"):
+                churn_lines.append(f"  {test_name}: no data")
+                continue
+            overheads = _notable_deltas(baseline["metric_avgs"], churn_data["metric_avgs"])
+            churn_lines.append(f"  {test_name}: {', '.join(overheads)}" if overheads else f"  {test_name}: no notable overhead")
+        if churn_lines:
+            lines.append(f"Churn Overhead vs {CUDN_CHURN_BASELINE} ({primary_version}):")
+            lines.extend(churn_lines)
+            lines.append("")
+
+    # Version comparison
+    if len(version_list) > 1:
+        comp_lines = []
+        for i in range(1, len(version_list)):
+            from_ver, to_ver = version_list[i - 1], version_list[i]
+            pair_lines = []
+            for test_name in CUDN_CONFIGS:
+                from_data = all_version_data.get(from_ver, {}).get(test_name)
+                to_data = all_version_data.get(to_ver, {}).get(test_name)
+                if not from_data or not to_data:
+                    continue
+                changes = _notable_deltas(from_data.get("metric_avgs", {}), to_data.get("metric_avgs", {}))
+                if changes:
+                    pair_lines.append(f"  {test_name}: {', '.join(changes)}")
+            if pair_lines:
+                comp_lines.append(f"  {from_ver} → {to_ver}:")
+                comp_lines.extend([f"  {l}" for l in pair_lines])
+        if comp_lines:
+            lines.append("Version Comparison (notable changes >5%):")
+            lines.extend(comp_lines)
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def cudn_performance_summary(
+    versions: Annotated[str, Field(description="Comma-separated OCP versions to analyze (e.g. '4.22,4.23,5.0'). Last version is the primary for regression checks.")] = "4.22,4.23,5.0",
+    lookback: Annotated[str, Field(description="Number of days to lookback")] = "30",
+    ctx: Context = None,
+) -> str:
+    """
+    Comprehensive performance summary for all 5 CUDN density tests.
+
+    Runs Orion regression analysis across 5 CUDN test configurations and returns
+    a pre-formatted text report with per-test health status, key metric averages,
+    regression details, churn overhead analysis, and version-to-version comparison.
+
+    CUDN tests covered:
+      - cudn-density-single-ns-250 (static, 250 CUDNs, 24 nodes)
+      - cudn-pod-churn-250 (pod churn, 250 CUDNs, 24 nodes)
+      - cudn-churn-250 (CUDN churn, 250 CUDNs, 24 nodes)
+      - cudn-density-single-ns-500 (static, 500 CUDNs, 24 nodes)
+      - cudn-incremental-1000 (incremental, 1000 CUDNs, step size 200, 24 nodes)
+
+    Args:
+        versions: Comma-separated OCP versions. Last is primary for regression/churn analysis.
+        lookback: Days to look back. Defaults to 30.
+        ctx: MCP context for request headers.
+
+    Returns:
+        Pre-formatted text summary ready for display. Includes only key metrics
+        and notable changes (>5%) to minimize token usage.
+    """
+    _extract_and_set_es_server(ctx)
+
+    version_list = [v.strip() for v in versions.split(",") if v.strip()]
+    if not version_list:
+        return "Error: no versions specified."
+    primary_version = version_list[-1]
+
+    all_version_data: dict[str, dict[str, dict]] = {}
+
+    all_tasks = []
+    task_keys = []
+    for version in version_list:
+        for test_name, test_info in CUDN_CONFIGS.items():
+            if not _version_ge(version, test_info.get("min_version", "0")):
+                continue
+            all_tasks.append(
+                _collect_cudn_test_data(test_name, test_info, version, lookback)
+            )
+            task_keys.append((version, test_name))
+
+    all_results = await asyncio.gather(*all_tasks)
+
+    for (version, _test_name), test_result in zip(task_keys, all_results):
+        all_version_data.setdefault(version, {})[test_result["test"]] = test_result
+
+    primary_data = all_version_data[primary_version]
+
+    healthy = sum(1 for t in primary_data.values() if t["status"] == "healthy")
+    regressed = sum(1 for t in primary_data.values() if t["status"] == "regression")
+    no_data = sum(1 for t in primary_data.values() if t["status"] == "no_data")
+    total = len(primary_data)
+
+    if regressed > 0:
+        overall_status = "regression"
+    elif no_data == total:
+        overall_status = "no_data"
+    else:
+        overall_status = "healthy"
+
+    parts = []
+    if healthy:
+        parts.append(f"{healthy} healthy")
+    if regressed:
+        parts.append(f"{regressed} regression{'s' if regressed > 1 else ''}")
+    if no_data:
+        parts.append(f"{no_data} no data")
+    summary_text = f"{', '.join(parts)} (out of {total} tests, version {primary_version})"
+
+    return _format_summary(
+        version_list, primary_version, lookback,
+        overall_status, summary_text, all_version_data,
+    )
 
 
 def main():
