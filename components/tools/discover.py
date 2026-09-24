@@ -35,7 +35,7 @@ async def _resolve_configs_from_prow(build_url: str) -> list[str]:
     if not build_url or PROW_VIEW_PREFIX not in build_url:
         return []
 
-    gcs_path = build_url.replace(PROW_VIEW_PREFIX, "")
+    gcs_path = build_url.removeprefix(PROW_VIEW_PREFIX)
     gcs_base = f"{GCSWEB_BASE_URL}/{gcs_path}"
 
     configs = set()
@@ -112,6 +112,10 @@ async def discover_jobs(
     Returns:
         Dict with 'jobs' mapping job names to benchmarks, configs, metadata, buildUrl.
     """
+    _VALID_JOB_TYPES = {"periodic", "pull"}
+    if job_type not in _VALID_JOB_TYPES:
+        return {"error": f"Invalid job_type '{job_type}': must be one of {sorted(_VALID_JOB_TYPES)}"}
+
     extract_and_set_es_server(ctx)
 
     es_server = get_data_source()

@@ -21,18 +21,21 @@ class TestResolveConfigsFromProw:
     @pytest.mark.asyncio
     async def test_returns_sorted_configs_from_prow_artifacts(self):
         artifacts_html = "> e2e-test/<"
-        step_html = "> openshift-qe-orion-step-a/<"
-        build_log = "some log\nORION_CONFIG=examples/node-density.yaml\nmore log"
+        step_html = "> openshift-qe-orion-step-b/< > openshift-qe-orion-step-a/<"
+        build_log_a = "some log\nORION_CONFIG=examples/node-density.yaml\nmore log"
+        build_log_b = "some log\nORION_CONFIG=examples/cluster-density.yaml\nmore log"
 
         async def mock_get(url, **kwargs):
             response = MagicMock()
             response.status_code = 200
             if url.endswith("/artifacts/"):
                 response.text = artifacts_html
-            elif "e2e-test" in url and url.endswith("/"):
+            elif url.endswith("e2e-test/"):
                 response.text = step_html
+            elif "step-a" in url:
+                response.text = build_log_a
             else:
-                response.text = build_log
+                response.text = build_log_b
             return response
 
         mock_client = AsyncMock()
@@ -45,7 +48,9 @@ class TestResolveConfigsFromProw:
                 "https://prow.ci.openshift.org/view/gs/bucket/build/123"
             )
 
+        assert result == sorted(result)
         assert "node-density.yaml" in result
+        assert "cluster-density.yaml" in result
 
     @pytest.mark.asyncio
     async def test_returns_empty_when_artifacts_request_fails(self):
@@ -209,3 +214,43 @@ class TestDiscoverJobs:
 
         must_clauses = captured_query["query"]["bool"]["must"]
         assert {"prefix": {"ocpVersion.keyword": "4.18"}} in must_clauses
+
+    @pytest.mark.asyncio
+    async def test_workload_filter_goes_into_bool_filter_not_must(self):
+        """workload uses a wildcard in filter context, not must — different ES semantics."""
+        captured_query = {}
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"aggregations": {"jobs": {"buckets": []}}}
+        mock_response.raise_for_status = MagicMock()
+
+        async def capture_post(url, json=None, **kwargs):
+            captured_query.update(json or {})
+            return mock_response
+
+        mock_client = AsyncMock()
+        mock_client.post = capture_post
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        with (
+            patch("components.tools.discover.httpx.AsyncClient", return_value=mock_client),
+            patch("components.tools.discover.get_data_source", return_value="http://es:9200"),
+            patch("components.tools.discover.get_es_metadata_index", return_value="perf_scale_ci*"),
+            patch("components.tools.discover.extract_and_set_es_server"),
+        ):
+            await discover_jobs(workload="payload")
+
+        filter_clauses = captured_query["query"]["bool"].get("filter", [])
+        must_clauses = captured_query["query"]["bool"]["must"]
+        expected_wildcard = {"wildcard": {"upstreamJob.keyword": {"value": "*payload*"}}}
+        assert expected_wildcard in filter_clauses
+        assert expected_wildcard not in must_clauses
+
+    @pytest.mark.asyncio
+    async def test_invalid_job_type_returns_error(self):
+        """Passing an unrecognized job_type returns a validation error before hitting ES."""
+        result = await discover_jobs(job_type="invalid-type")
+        assert "error" in result
+        assert "job_type" in result["error"]
