@@ -507,7 +507,7 @@ class NightlyVersionInfo:
     """Information parsed from a nightly or GA version string."""
     full_version: str           # "4.18.0-0.nightly-2025-01-15-203335" or "4.18"
     major_version: str          # "4.18"
-    nightly_date: Optional[datetime]  # datetime(2025, 1, 15, 20, 33, 35) for nightlies, None for GA
+    nightly_date: Optional[datetime]  # datetime(2025, 1, 15, 20, 33, 35, tzinfo=timezone.utc) for nightlies, None for GA
     is_nightly: bool            # True for nightlies, False for GA
 
 
@@ -547,7 +547,7 @@ def parse_nightly_version(version_string: str) -> NightlyVersionInfo:
         return NightlyVersionInfo(
             full_version=version_string,
             major_version=f"{major}.{minor}",
-            nightly_date=datetime(year, month, day, hour, minute, second),
+            nightly_date=datetime(year, month, day, hour, minute, second, tzinfo=timezone.utc),
             is_nightly=True,
         )
 
