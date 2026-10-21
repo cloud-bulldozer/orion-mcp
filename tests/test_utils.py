@@ -78,7 +78,7 @@ class TestParseNightlyVersion:
         assert info.is_nightly is True
         assert info.major_version == "4.22"
         assert info.full_version == "4.22.0-0.nightly-2026-01-05-203335"
-        assert info.nightly_date == datetime(2026, 1, 5, 20, 33, 35)
+        assert info.nightly_date == datetime(2026, 1, 5, 20, 33, 35, tzinfo=timezone.utc)
 
     def test_ga_major_minor(self):
         info = parse_nightly_version("4.17")
@@ -107,7 +107,7 @@ class TestParseNightlyVersion:
         info = parse_nightly_version("5.0.0-0.nightly-2026-08-10-122052")
         assert info.major_version == "5.0"
         assert info.is_nightly is True
-        assert info.nightly_date == datetime(2026, 8, 10, 12, 20, 52)
+        assert info.nightly_date == datetime(2026, 8, 10, 12, 20, 52, tzinfo=timezone.utc)
 
 
 class TestParseTimestamp:
