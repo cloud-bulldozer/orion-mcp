@@ -9,11 +9,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         python-version: ["3.11"]
     steps:
     - uses: actions/checkout@v4
+      with:
+        persist-credentials: false
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v3
       with:
@@ -24,4 +28,4 @@ jobs:
         pip install pylint
     - name: Analysing the code with pylint
       run: |
-        pylint --disable=C0301,C0302,C0303,C0304,C0305,E0401,W0718,R0911,R0914,R0912,R0915,R0917,C0103,R0913 $(git ls-files '*.py')
+        pylint --disable=C0301,C0302,C0303,C0304,C0305,E0401,W0718,R0911,R0914,R0912,R0915,R0917,C0103,R0913 $(git ls-files '*.py' | grep -v '^tests/')

@@ -1,8 +1,6 @@
 # Core MCP framework and its key dependencies
-# mcp>=1.21.2 drops the private pydantic eval_type_backport import
-# that breaks against pydantic>=2.14
-mcp==1.30.0
-pydantic>=2.11.0,<3.0.0
+fastmcp>=4.0.0
+pydantic>=2.11.0
 pydantic_core>=2.33.0
 typing_extensions>=4.15.0
 
