@@ -8,6 +8,9 @@ Welcome to the Orion MCP documentation! This directory contains comprehensive gu
 - **[Installation Guide](installation.md)** - Setup and installation instructions
 - **[Quick Start](quickstart.md)** - Get up and running in minutes
 
+### Development
+- **[Fullsend](fullsend.md)** - Repository automation, installation prerequisites, and verification
+
 ### API Reference
 - **[API Overview](api/README.md)** - Complete API documentation
 
