@@ -89,7 +89,7 @@ All tool requests use HTTP POST with JSON payloads sent to the appropriate tool 
 
 Currently, Orion MCP uses environment-based authentication:
 
-- **OpenSearch**: Configure via `ES_SERVER` environment variable
+- **OpenSearch**: Configure via the `ES_SERVER` environment variable, or per request via the encrypted `X-Encrypted-Context` header (which requires `HEADER_SYMMETRIC_KEY` on the server). See the [Installation Guide](../installation.md#supplying-es_server-via-request-headers) for details.
 - **GitHub**: No authentication required for public repositories
 
 ## 🚨 Rate Limits

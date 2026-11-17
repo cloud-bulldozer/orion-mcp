@@ -48,7 +48,7 @@ pip install -r requirements.txt
 
 #### Step 4: Verify Installation
 ```bash
-python -c "import orion_mcp; print('✅ Installation successful')"
+python server.py --help
 ```
 
 ### Method 2: Container Installation
@@ -120,7 +120,11 @@ spec:
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ES_SERVER` | ✅ Yes | None | OpenSearch/Elasticsearch endpoint URL |
+| `ES_SERVER` | Conditional | None | OpenSearch/Elasticsearch endpoint URL. Required unless every request supplies it via the encrypted request header (see below) |
+| `HEADER_SYMMETRIC_KEY` | Conditional | None | Base64-encoded 32-byte AES-256-GCM key; required when clients send the encrypted `X-Encrypted-Context` header |
+| `MCP_TRANSPORT` | No | `streamable-http` | MCP transport used by the server |
+| `MCP_HOST` | No | `0.0.0.0` | Interface the server binds to |
+| `MCP_PORT` | No | `3030` | Port the server listens on |
 | `ES_METADATA_INDEX` | No | `perf_scale_ci*` | Metadata index pattern |
 | `ES_BENCHMARK_INDEX` | No | `ripsaw-kube-burner-*` | Benchmark data index pattern |
 | `ORION_DEBUG` | No | `false` | Enable debug logging |
@@ -151,18 +155,29 @@ Or use a URL without credentials if your OpenSearch instance doesn't require aut
 export ES_SERVER="https://opensearch:9200"
 ```
 
+### Supplying ES_SERVER via Request Headers
+
+Clients can instead provide `ES_SERVER` per request in the encrypted `X-Encrypted-Context` header (an `es_server` field in the encrypted JSON payload). The server decrypts this header using the AES-256-GCM key in the `HEADER_SYMMETRIC_KEY` environment variable.
+
+`ES_SERVER` is resolved in this order:
+
+1. The `es_server` value from the encrypted request header
+2. The `ES_SERVER` environment variable (fallback)
+
+If `ES_SERVER` is not set in the environment, the server still starts but logs a warning; requests must then provide it via the header.
+
 ## 🧪 Verification
 
 ### Test Installation
 ```bash
 # Start server
-python orion_mcp.py &
+python server.py &
 
 # Verify server is running (check logs for startup messages)
 # Server should start on http://localhost:3030
 
 # Stop server
-pkill -f orion_mcp.py
+pkill -f server.py
 ```
 
 ### Expected Output
@@ -230,7 +245,7 @@ Enable detailed logging:
 ```bash
 export ORION_DEBUG=1
 export PYTHONUNBUFFERED=1
-python orion_mcp.py
+python server.py
 ```
 
 ### Log Analysis
