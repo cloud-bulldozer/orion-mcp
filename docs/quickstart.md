@@ -45,15 +45,17 @@ Set your OpenSearch endpoint:
 export ES_SERVER="https://your-opensearch-endpoint:9200"
 ```
 
+`ES_SERVER` may also be supplied per request through the encrypted `X-Encrypted-Context` request header; the header value takes precedence and the environment variable is the fallback. See the [Installation Guide](installation.md#supplying-es_server-via-request-headers) for details.
+
 ## 🎯 First Run
 
 Start the MCP server:
 
 ```bash
-python orion_mcp.py
+python server.py
 ```
 
-The server will start on `http://localhost:3030`
+The server will start on `http://localhost:3030`. The transport, bind address, and port can be changed with `MCP_TRANSPORT` (default `streamable-http`), `MCP_HOST` (default `0.0.0.0`), and `MCP_PORT` (default `3030`).
 
 ## 🧪 Test Your Setup
 

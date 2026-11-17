@@ -57,8 +57,19 @@ Set the data-source endpoint and launch the server locally:
 
 ```bash
 export ES_SERVER="https://opensearch.example.com:9200"
-python orion_mcp.py  # listens on 0.0.0.0:3030 by default
+python server.py  # listens on 0.0.0.0:3030 by default
 ```
+
+The server reads the following environment variables at startup:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MCP_TRANSPORT` | `streamable-http` | MCP transport passed to the server |
+| `MCP_HOST` | `0.0.0.0` | Interface the server binds to |
+| `MCP_PORT` | `3030` | Port the server listens on |
+| `ES_SERVER` | _unset_ | OpenSearch/Elasticsearch endpoint URL |
+
+`ES_SERVER` can be supplied either through the server environment or per request via the encrypted `X-Encrypted-Context` request header (an `es_server` field, decrypted with the key in `HEADER_SYMMETRIC_KEY`). When both are present, the request-header value takes precedence and the environment variable is used as the fallback. If `ES_SERVER` is not set in the environment, the server still starts but logs a warning, and requests must then provide it via the header.
 
 ---
 
