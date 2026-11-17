@@ -121,6 +121,7 @@ spec:
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `ES_SERVER` | Conditional | None | OpenSearch/Elasticsearch endpoint URL. Required unless every request supplies it via the encrypted request header (see below) |
+| `HEADER_SYMMETRIC_KEY` | Conditional | None | Base64-encoded 32-byte AES-256-GCM key; required when clients send the encrypted `X-Encrypted-Context` header |
 | `MCP_TRANSPORT` | No | `streamable-http` | MCP transport used by the server |
 | `MCP_HOST` | No | `0.0.0.0` | Interface the server binds to |
 | `MCP_PORT` | No | `3030` | Port the server listens on |
